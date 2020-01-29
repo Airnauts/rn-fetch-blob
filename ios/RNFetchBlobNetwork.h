@@ -33,6 +33,8 @@
 + (void) emitExpiredTasks;
 
 - (nullable id) init;
+- (NSURLSession *)backgroundURLSession;
+- (void)setBackgroundCompletionHandler:(void (^)(void))completionHandler;
 - (void) sendRequest:(NSDictionary  * _Nullable )options
        contentLength:(long)contentLength
               bridge:(RCTBridge * _Nullable)bridgeRef
@@ -40,6 +42,7 @@
          withRequest:(NSURLRequest * _Nullable)req
             callback:(_Nullable RCTResponseSenderBlock) callback;
 - (void) cancelRequest:(NSString * _Nonnull)taskId;
+- (void) cancelBackgroundDownloadTasks;
 - (void) enableProgressReport:(NSString * _Nonnull) taskId config:(RNFetchBlobProgress * _Nullable)config;
 - (void) enableUploadProgress:(NSString * _Nonnull) taskId config:(RNFetchBlobProgress * _Nullable)config;
 

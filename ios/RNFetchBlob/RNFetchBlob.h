@@ -39,6 +39,7 @@
 @property (retain) UIDocumentInteractionController * documentController;
 
 + (RCTBridge *)getRCTBridge;
++ (void)setBackgroundCompletionHandler:(void (^)(void))completionHandler;
 
 @end
 

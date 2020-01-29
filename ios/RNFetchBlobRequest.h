@@ -19,7 +19,7 @@
 #import "RCTBridgeModule.h"
 #endif
 
-@interface RNFetchBlobRequest : NSObject <NSURLSessionDelegate, NSURLSessionTaskDelegate, NSURLSessionDataDelegate>
+@interface RNFetchBlobRequest : NSObject <NSURLSessionDelegate, NSURLSessionTaskDelegate, NSURLSessionDataDelegate, NSURLSessionDownloadDelegate>
 
 @property (nullable, nonatomic) NSString * taskId;
 @property (nonatomic) long long expectedBytes;
@@ -32,9 +32,9 @@
 @property (nullable, nonatomic) NSError * error;
 @property (nullable, nonatomic) RNFetchBlobProgress *progressConfig;
 @property (nullable, nonatomic) RNFetchBlobProgress *uploadProgressConfig;
-@property (nullable, nonatomic, weak) NSURLSessionDataTask *task;
+@property (nullable, nonatomic, weak) NSURLSessionTask *task;
 
-- (void) sendRequest:(NSDictionary  * _Nullable )options
+- (NSUInteger) sendRequest:(NSDictionary  * _Nullable )options
        contentLength:(long)contentLength
               bridge:(RCTBridge * _Nullable)bridgeRef
               taskId:(NSString * _Nullable)taskId

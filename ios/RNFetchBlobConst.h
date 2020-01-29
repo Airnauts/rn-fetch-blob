@@ -50,6 +50,8 @@ extern NSString *const RESP_TYPE_BASE64;
 extern NSString *const RESP_TYPE_UTF8;
 extern NSString *const RESP_TYPE_PATH;
 
-
+// response codes
+extern const int DOWNLOAD_STATUS_OK;
+extern const int DOWNLOAD_STATUS_ERROR;
 
 #endif /* RNFetchBlobConst_h */

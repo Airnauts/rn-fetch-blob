@@ -42,6 +42,11 @@ dispatch_queue_t fsQueue;
     return rootView.bridge;
 }
 
++ (void)setBackgroundCompletionHandler:(void (^)(void))completionHandler
+{
+    [[RNFetchBlobNetwork sharedInstance] setBackgroundCompletionHandler:completionHandler];
+}
+
 + (BOOL)requiresMainQueueSetup {
     return NO;
 }
@@ -72,6 +77,11 @@ RCT_EXPORT_MODULE();
              @"DocumentDir": [RNFetchBlobFS getDocumentDir],
              @"CacheDir" : [RNFetchBlobFS getCacheDir]
              };
+}
+
+// Fetch blob data request
+RCT_EXPORT_METHOD(cancelTasks) {
+    [[RNFetchBlobNetwork sharedInstance] cancelBackgroundDownloadTasks];
 }
 
 // Fetch blob data request

@@ -11,6 +11,7 @@
 #import "RNFetchBlobFS.h"
 #import "RNFetchBlobConst.h"
 #import "RNFetchBlobReqBuilder.h"
+#import "RNFetchBlobNetwork.h"
 
 #import "IOS7Polyfill.h"
 #import <CommonCrypto/CommonDigest.h>
@@ -35,7 +36,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     NSMutableArray * redirects;
     ResponseFormat responseFormat;
     BOOL followRedirect;
-    BOOL backgroundTask;
+    BOOL isBackgroundDownloadTask;
 }
 
 @end
@@ -51,7 +52,6 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
 @synthesize options;
 @synthesize error;
 
-
 - (NSString *)md5:(NSString *)input {
     const char* str = [input UTF8String];
     unsigned char result[CC_MD5_DIGEST_LENGTH];
@@ -65,7 +65,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
 }
 
 // send HTTP request
-- (void) sendRequest:(__weak NSDictionary  * _Nullable )options
+- (NSUInteger) sendRequest:(__weak NSDictionary  * _Nullable )options
        contentLength:(long) contentLength
               bridge:(RCTBridge * _Nullable)bridgeRef
               taskId:(NSString * _Nullable)taskId
@@ -81,7 +81,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     self.receivedBytes = 0;
     self.options = options;
     
-    backgroundTask = [[options valueForKey:@"IOSBackgroundTask"] boolValue];
+    isBackgroundDownloadTask = [options valueForKey:@"IOSBackgroundDownloadTask"] == nil ? NO : [[options valueForKey:@"IOSBackgroundDownloadTask"] boolValue];
     // when followRedirect not set in options, defaults to TRUE
     followRedirect = [options valueForKey:@"followRedirect"] == nil ? YES : [[options valueForKey:@"followRedirect"] boolValue];
     isIncrement = [[options valueForKey:@"increment"] boolValue];
@@ -90,7 +90,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     if (req.URL) {
         [redirects addObject:req.URL.absoluteString];
     }
-    
+
     // set response format
     NSString * rnfbResp = [req.allHTTPHeaderFields valueForKey:@"RNFB-Response"];
     
@@ -105,28 +105,13 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     NSString * path = [self.options valueForKey:CONFIG_FILE_PATH];
     NSString * key = [self.options valueForKey:CONFIG_KEY];
     NSURLSession * session;
-    
+
     bodyLength = contentLength;
     
     // the session trust any SSL certification
-    NSURLSessionConfiguration *defaultConfigObject;
-    
-    defaultConfigObject = [NSURLSessionConfiguration defaultSessionConfiguration];
-    
-    if (backgroundTask) {
-        defaultConfigObject = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:taskId];
-    }
-    
-    // request timeout, -1 if not set in options
-    float timeout = [options valueForKey:@"timeout"] == nil ? -1 : [[options valueForKey:@"timeout"] floatValue];
-    
-    if (timeout > 0) {
-        defaultConfigObject.timeoutIntervalForRequest = timeout/1000;
-    }
-    
-    defaultConfigObject.HTTPMaximumConnectionsPerHost = 10;
-    session = [NSURLSession sessionWithConfiguration:defaultConfigObject delegate:self delegateQueue:operationQueue];
-    
+
+    session = [self prepareSessionForTaskType:isBackgroundDownloadTask delegateQueue: operationQueue];
+
     if (path || [self.options valueForKey:CONFIG_USE_TEMP]) {
         respFile = YES;
         
@@ -143,7 +128,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
             if ([[NSFileManager defaultManager] fileExistsAtPath:destPath]) {
                 callback(@[[NSNull null], RESP_TYPE_PATH, destPath]);
                 
-                return;
+                return -1;
             }
         }
         
@@ -156,16 +141,55 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
         respData = [[NSMutableData alloc] init];
         respFile = NO;
     }
-    
-    self.task = [session dataTaskWithRequest:req];
+
+    if (isBackgroundDownloadTask) {
+        self.task = [session downloadTaskWithRequest:req];
+    } else {
+        self.task = [session dataTaskWithRequest:req];
+    }
+
     [self.task resume];
-    
+
     // network status indicator
     if ([[options objectForKey:CONFIG_INDICATOR] boolValue]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
         });
     }
+
+    return self.task.taskIdentifier;
+}
+
+- (NSURLSession*)prepareSessionForTaskType:(BOOL)isBackgroundDownloadTask delegateQueue:(NSOperationQueue*)operationQueue {
+    NSURLSession *session;
+
+    if (isBackgroundDownloadTask) {
+        session = [[RNFetchBlobNetwork sharedInstance] backgroundURLSession];
+
+        float timeout = [options valueForKey:@"timeout"] == nil ? -1 : [[options valueForKey:@"timeout"] floatValue];
+
+        if (timeout > 0) {
+            session.configuration.timeoutIntervalForRequest = timeout/1000;
+        }
+
+    } else {
+
+        NSURLSessionConfiguration *defaultConfigObject;
+        defaultConfigObject = [NSURLSessionConfiguration defaultSessionConfiguration];
+
+        // request timeout, -1 if not set in options
+        float timeout = [options valueForKey:@"timeout"] == nil ? -1 : [[options valueForKey:@"timeout"] floatValue];
+
+        if (timeout > 0) {
+            defaultConfigObject.timeoutIntervalForRequest = timeout/1000;
+        }
+
+        defaultConfigObject.HTTPMaximumConnectionsPerHost = 10;
+
+        session = [NSURLSession sessionWithConfiguration:defaultConfigObject delegate:self delegateQueue:operationQueue];
+    }
+
+    return session;
 }
 
 ////////////////////////////////////////
@@ -183,7 +207,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
 - (void) URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
 {
     expectedBytes = [response expectedContentLength];
-    
+
     NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*)response;
     NSInteger statusCode = [(NSHTTPURLResponse *)response statusCode];
     NSString * respType = @"";
@@ -299,6 +323,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
             [writeStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
             [writeStream open];
         }
+
         @catch(NSException * ex)
         {
             NSLog(@"write file error");
@@ -307,7 +332,6 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     
     completionHandler(NSURLSessionResponseAllow);
 }
-
 
 // download progress handler
 - (void) URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
@@ -353,6 +377,107 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     }
 }
 
+#pragma mark - Download Task -
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location {
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+    });
+
+    NSError *error;
+
+    if (destPath) {
+
+        NSFileManager * fm = [NSFileManager defaultManager];
+        NSString * folder = [destPath stringByDeletingLastPathComponent];
+
+        if (![fm fileExistsAtPath:folder]) {
+            [fm createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:NULL error:nil];
+        }
+
+        NSURL *destinationURL = [NSURL fileURLWithPath:destPath];
+
+        [fm moveItemAtURL:location toURL:destinationURL error: &error];
+
+    } else {
+
+        error = [[NSError alloc] initWithDomain: @"rn.fetch.error" code: -1 userInfo: nil];
+
+    }
+
+    if (error) {
+
+        [self.bridge.eventDispatcher
+         sendDeviceEventWithName: EVENT_STATE_CHANGE
+         body:@{
+                @"taskId": taskId,
+                @"state": @"2",
+                @"redirects": redirects,
+                @"timeout" : @NO,
+                @"status": [NSNumber numberWithInteger: DOWNLOAD_STATUS_ERROR]
+                }
+         ];
+
+
+        callback(@[
+                   error ?: [NSNull null],
+                   RESP_TYPE_PATH,
+                   destPath ?: [NSNull null]
+                   ]);
+
+    } else {
+
+        [self.bridge.eventDispatcher
+         sendDeviceEventWithName: EVENT_STATE_CHANGE
+         body:@{
+                @"taskId": taskId,
+                @"state": @"2",
+                @"redirects": redirects,
+                @"timeout" : @NO,
+                @"status": [NSNumber numberWithInteger: DOWNLOAD_STATUS_OK]
+                }
+         ];
+
+        callback(@[
+                   [NSNull null],
+                   RESP_TYPE_PATH,
+                   destPath ?: [NSNull null]
+                   ]);
+
+    }
+
+    respData = nil;
+    receivedBytes = 0;
+}
+
+- (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
+
+    if (totalBytesExpectedToWrite == 0) {
+        return;
+    }
+
+    NSNumber * now =[NSNumber numberWithFloat:((float)totalBytesWritten/(float)totalBytesExpectedToWrite)];
+
+    if ([self.progressConfig shouldReport:now]) {
+        [self.bridge.eventDispatcher
+         sendDeviceEventWithName:EVENT_PROGRESS
+         body:@{
+                @"taskId": taskId,
+                @"written": [NSString stringWithFormat:@"%lld", (long long) totalBytesWritten],
+                @"total": [NSString stringWithFormat:@"%lld", (long long) totalBytesExpectedToWrite],
+                }
+         ];
+    }
+
+}
+
+#pragma mark - General Tasks Tracking -
+
 - (void) URLSession:(NSURLSession *)session didBecomeInvalidWithError:(nullable NSError *)error
 {
     if ([session isEqual:session]) {
@@ -363,7 +488,11 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
 
 - (void) URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
 {
-    
+
+    if ([task isKindOfClass:[NSURLSessionDownloadTask class]] && error == nil) {
+        return;
+    }
+
     self.error = error;
     NSString * errMsg;
     NSString * respStr;
@@ -418,7 +547,10 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
     
     respData = nil;
     receivedBytes = 0;
-    [session finishTasksAndInvalidate];
+
+    if (isBackgroundDownloadTask == NO) {
+        [session finishTasksAndInvalidate];
+    }
     
 }
 
@@ -456,6 +588,7 @@ typedef NS_ENUM(NSUInteger, ResponseFormat) {
 
 - (void) URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session
 {
+
     NSLog(@"sess done in background");
 }
 

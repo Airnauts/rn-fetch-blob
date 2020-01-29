@@ -42,3 +42,6 @@ NSString *const KEY_REPORT_UPLOAD_PROGRESS = @"reportUploadProgress";
 NSString *const RESP_TYPE_BASE64 = @"base64";
 NSString *const RESP_TYPE_UTF8 = @"utf8";
 NSString *const RESP_TYPE_PATH = @"path";
+
+const int DOWNLOAD_STATUS_OK = 200;
+const int DOWNLOAD_STATUS_ERROR = 403;
