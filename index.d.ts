@@ -560,6 +560,7 @@ export interface RNFetchBlobConfig {
      * Fix IOS request timeout issue #368 by change default request setting to defaultSessionConfiguration, and make backgroundSessionConfigurationWithIdentifier optional
      */
     IOSBackgroundTask?: boolean;
+    IOSBackgroundDownloadTask?: boolean;
 }
 
 export interface AddAndroidDownloads {
