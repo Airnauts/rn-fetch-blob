@@ -42,7 +42,7 @@ static void initialize_tables() {
     }
 
     if (sessionDelegatesTable == nil) {
-        sessionDelegatesTable = [NSMapTable mapTableWithKeyOptions:NSMapTableStrongMemory valueOptions:NSMapTableStrongMemory];
+        sessionDelegatesTable = [NSMutableDictionary new];
     }
 }
 
@@ -255,9 +255,15 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
 didFinishDownloadingToURL:(NSURL *)location {
+        
     RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
     if (delegate) {
-        [delegate URLSession:session downloadTask:downloadTask didFinishDownloadingToURL:location];
+        
+        [delegate URLSession:session
+                downloadTask:downloadTask
+   didFinishDownloadingToURL:location];
+        
+        [sessionDelegatesTable removeObjectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
     }
 }
 
@@ -311,12 +317,12 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 - (void) URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable credantial))completionHandler
 {
 
-    for (id key in sessionDelegatesTable) {
-        RNFetchBlobRequest *delegate = [sessionDelegatesTable valueForKey:key];
-        if (delegate && [delegate respondsToSelector:@selector(URLSession:didReceiveChallenge:completionHandler:)]) {
-            [delegate URLSession:session didReceiveChallenge:challenge completionHandler:completionHandler];
-        }
-    }
+     for (id key in sessionDelegatesTable) {
+         RNFetchBlobRequest *delegate = [sessionDelegatesTable objectForKey:key];
+         if (delegate && [delegate respondsToSelector:@selector(URLSession:didReceiveChallenge:completionHandler:)]) {
+             [delegate URLSession:session didReceiveChallenge:challenge completionHandler:completionHandler];
+         }
+     }
 }
 
 
