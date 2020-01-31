@@ -33,7 +33,7 @@
 ////////////////////////////////////////
 
 NSMapTable * expirationTable;
-NSMapTable * sessionDelegatesTable;
+NSMutableDictionary * sessionDelegatesTable;
 
 __attribute__((constructor))
 static void initialize_tables() {
@@ -120,7 +120,9 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
       taskOperationQueue:self.taskQueue
                 callback:callback];
 
-    [sessionDelegatesTable setObject:request forKey:[NSNumber numberWithUnsignedInteger: sessionTaskIdentifier]];
+    @synchronized (sessionDelegatesTable) {
+        [sessionDelegatesTable setObject:request forKey:[NSNumber numberWithUnsignedInteger: sessionTaskIdentifier]];
+    }
     
     @synchronized([RNFetchBlobNetwork class]) {
         [self.requestsTable setObject:request forKey:taskId];
@@ -177,7 +179,9 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
         }
     }];
 
-    [sessionDelegatesTable removeAllObjects];
+    @synchronized (sessionDelegatesTable) {
+        [sessionDelegatesTable removeAllObjects];
+    }
 }
 
 - (void) cancelRequest:(NSString *)taskId
@@ -186,6 +190,9 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
     
     @synchronized ([RNFetchBlobNetwork class]) {
         task = [self.requestsTable objectForKey:taskId].task;
+    }
+
+    @synchronized (sessionDelegatesTable) {
         [sessionDelegatesTable removeObjectForKey: [NSNumber numberWithUnsignedInteger: task.taskIdentifier]];
     }
     
@@ -208,7 +215,7 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
 // #115 Invoke fetch.expire event on those expired requests so that the expired event can be handled
 + (void) emitExpiredTasks
 {
-    @synchronized ([RNFetchBlobNetwork class]){
+    @synchronized ([RNFetchBlobNetwork class]) {
         NSEnumerator * emu =  [expirationTable keyEnumerator];
         NSString * key;
         
@@ -230,24 +237,32 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
 #pragma mark - Received Response
 // set expected content length on response received
 - (void) URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler {
-     RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:dataTask.taskIdentifier]];
-     if (delegate) {
-         [delegate URLSession:session
-                     dataTask:dataTask
-           didReceiveResponse:response
-            completionHandler:completionHandler];
-     }
+
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:dataTask.taskIdentifier]];
+        if (delegate) {
+            [delegate URLSession:session
+                        dataTask:dataTask
+              didReceiveResponse:response
+               completionHandler:completionHandler];
+        }
+    }
+
 }
 
 // download progress handler
 - (void) URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
 {
-    RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:dataTask.taskIdentifier]];
-    if (delegate) {
-        [delegate URLSession:session
-                    dataTask:dataTask
-              didReceiveData:data];
+
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:dataTask.taskIdentifier]];
+        if (delegate) {
+            [delegate URLSession:session
+                        dataTask:dataTask
+                  didReceiveData:data];
+        }
     }
+
 }
 
 #pragma mark - Download Task -
@@ -255,31 +270,37 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
 - (void)URLSession:(NSURLSession *)session
       downloadTask:(NSURLSessionDownloadTask *)downloadTask
 didFinishDownloadingToURL:(NSURL *)location {
-        
-    RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
-    if (delegate) {
-        
-        [delegate URLSession:session
-                downloadTask:downloadTask
-   didFinishDownloadingToURL:location];
-        
-        [sessionDelegatesTable removeObjectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
+
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
+        if (delegate) {
+
+            [delegate URLSession:session
+                    downloadTask:downloadTask
+       didFinishDownloadingToURL:location];
+
+            [sessionDelegatesTable removeObjectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
+        }
     }
+
 }
 
 - (void)URLSession:(NSURLSession *)session downloadTask:(NSURLSessionDownloadTask *)downloadTask
       didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten
 totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
-    RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
-    if (delegate) {
-
-        [delegate URLSession:session
-                downloadTask:downloadTask
-                didWriteData:bytesWritten
-           totalBytesWritten:totalBytesWritten
-   totalBytesExpectedToWrite:totalBytesExpectedToWrite];
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:downloadTask.taskIdentifier]];
+        if (delegate) {
+            
+            [delegate URLSession:session
+                    downloadTask:downloadTask
+                    didWriteData:bytesWritten
+               totalBytesWritten:totalBytesWritten
+       totalBytesExpectedToWrite:totalBytesExpectedToWrite];
+        }
     }
+
 }
 
 #pragma mark - General Tasks Tracking -
@@ -294,22 +315,30 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
 - (void) URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
 {
-     RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
-     if (delegate) {
-         [delegate URLSession:session task:task didCompleteWithError:error];
-     }
+
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
+        if (delegate) {
+            [delegate URLSession:session task:task didCompleteWithError:error];
+        }
+    }
+
 }
 
 // upload progress handler
 - (void) URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didSendBodyData:(int64_t)bytesSent totalBytesSent:(int64_t)totalBytesWritten totalBytesExpectedToSend:(int64_t)totalBytesExpectedToWrite
 {
-    RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
-    if (delegate) {
-        [delegate URLSession:session
-                        task:task
-             didSendBodyData:bytesSent
-              totalBytesSent:totalBytesWritten
-    totalBytesExpectedToSend:totalBytesExpectedToWrite];
+
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
+
+        if (delegate) {
+            [delegate URLSession:session
+                            task:task
+                 didSendBodyData:bytesSent
+                  totalBytesSent:totalBytesWritten
+        totalBytesExpectedToSend:totalBytesExpectedToWrite];
+        }
     }
 }
 
@@ -317,12 +346,16 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 - (void) URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential * _Nullable credantial))completionHandler
 {
 
-     for (id key in sessionDelegatesTable) {
-         RNFetchBlobRequest *delegate = [sessionDelegatesTable objectForKey:key];
-         if (delegate && [delegate respondsToSelector:@selector(URLSession:didReceiveChallenge:completionHandler:)]) {
-             [delegate URLSession:session didReceiveChallenge:challenge completionHandler:completionHandler];
+    @synchronized (sessionDelegatesTable) {
+
+         for (id key in sessionDelegatesTable) {
+             RNFetchBlobRequest *delegate = [sessionDelegatesTable objectForKey:key];
+             if (delegate && [delegate respondsToSelector:@selector(URLSession:didReceiveChallenge:completionHandler:)]) {
+                 [delegate URLSession:session didReceiveChallenge:challenge completionHandler:completionHandler];
+             }
          }
-     }
+
+    }
 }
 
 
@@ -336,13 +369,16 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
 - (void) URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest * _Nullable))completionHandler
 {
-    RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
-    if (delegate) {
-        [delegate URLSession:session
-                        task:task
-  willPerformHTTPRedirection:response
-                  newRequest:request
-           completionHandler:completionHandler];
+
+    @synchronized (sessionDelegatesTable) {
+        RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
+        if (delegate) {
+            [delegate URLSession:session
+                            task:task
+      willPerformHTTPRedirection:response
+                      newRequest:request
+               completionHandler:completionHandler];
+        }
     }
 }
 
