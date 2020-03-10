@@ -178,10 +178,6 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
             [downloadTask cancel];
         }
     }];
-
-    @synchronized (sessionDelegatesTable) {
-        [sessionDelegatesTable removeAllObjects];
-    }
 }
 
 - (void) cancelRequest:(NSString *)taskId
@@ -192,10 +188,6 @@ NSString *const kBackgroundSessionIdentifier = @"download.background.session";
         task = [self.requestsTable objectForKey:taskId].task;
     }
 
-    @synchronized (sessionDelegatesTable) {
-        [sessionDelegatesTable removeObjectForKey: [NSNumber numberWithUnsignedInteger: task.taskIdentifier]];
-    }
-    
     if (task && task.state == NSURLSessionTaskStateRunning) {
         [task cancel];
     }
@@ -318,8 +310,13 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
 
     @synchronized (sessionDelegatesTable) {
         RNFetchBlobRequest* delegate = [sessionDelegatesTable objectForKey: [NSNumber numberWithUnsignedInteger:task.taskIdentifier]];
+
         if (delegate) {
             [delegate URLSession:session task:task didCompleteWithError:error];
+        }
+
+        @synchronized (sessionDelegatesTable) {
+            [sessionDelegatesTable removeObjectForKey: [NSNumber numberWithUnsignedInteger: task.taskIdentifier]];
         }
     }
 
