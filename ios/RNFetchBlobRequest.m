@@ -387,28 +387,12 @@ didFinishDownloadingToURL:(NSURL *)location {
         [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
     });
 
-    NSError *error;
+    NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*)[downloadTask response];
+    NSInteger statusCode = [httpResponse statusCode];
 
-    if (destPath) {
+    if (statusCode != DOWNLOAD_STATUS_OK) {
 
-        NSFileManager * fm = [NSFileManager defaultManager];
-        NSString * folder = [destPath stringByDeletingLastPathComponent];
-
-        if (![fm fileExistsAtPath:folder]) {
-            [fm createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:NULL error:nil];
-        }
-
-        NSURL *destinationURL = [NSURL fileURLWithPath:destPath];
-
-        [fm moveItemAtURL:location toURL:destinationURL error: &error];
-
-    } else {
-
-        error = [[NSError alloc] initWithDomain: @"rn.fetch.error" code: -1 userInfo: nil];
-
-    }
-
-    if (error) {
+        NSInteger errorStatusCode = statusCode ?: DOWNLOAD_STATUS_ERROR;
 
         [self.bridge.eventDispatcher
          sendDeviceEventWithName: EVENT_STATE_CHANGE
@@ -417,19 +401,42 @@ didFinishDownloadingToURL:(NSURL *)location {
                 @"state": @"2",
                 @"redirects": redirects,
                 @"timeout" : @NO,
-                @"status": [NSNumber numberWithInteger: DOWNLOAD_STATUS_ERROR]
+                @"status": [NSNumber numberWithInteger: errorStatusCode]
                 }
          ];
 
-
         callback(@[
-                   error ?: [NSNull null],
+                   [[NSError alloc] initWithDomain: @"rn.fetch.error" code: -1 userInfo: nil],
                    RESP_TYPE_PATH,
                    destPath ?: [NSNull null]
                    ]);
 
     } else {
 
+        NSError *saveFileError;
+
+        if (destPath) {
+
+            NSFileManager * fm = [NSFileManager defaultManager];
+            NSString * folder = [destPath stringByDeletingLastPathComponent];
+
+            if (![fm fileExistsAtPath:folder]) {
+                [fm createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:NULL error:nil];
+            }
+
+            if ([fm fileExistsAtPath:destPath]) {
+                [fm removeItemAtPath:destPath error: &saveFileError];
+            }
+
+            NSURL *destinationURL = [NSURL fileURLWithPath:destPath];
+            [fm moveItemAtURL:location toURL:destinationURL error: &saveFileError];
+
+        } else {
+            saveFileError = [[NSError alloc] initWithDomain: @"rn.fetch.error" code: -1 userInfo: nil];
+        }
+
+        NSInteger errorStatusCode = saveFileError == nil ? DOWNLOAD_STATUS_OK : DOWNLOAD_STATUS_ERROR;
+
         [self.bridge.eventDispatcher
          sendDeviceEventWithName: EVENT_STATE_CHANGE
          body:@{
@@ -437,14 +444,14 @@ didFinishDownloadingToURL:(NSURL *)location {
                 @"state": @"2",
                 @"redirects": redirects,
                 @"timeout" : @NO,
-                @"status": [NSNumber numberWithInteger: DOWNLOAD_STATUS_OK]
+                @"status": [NSNumber numberWithInteger: errorStatusCode]
                 }
          ];
 
         callback(@[
-                   [NSNull null],
-                   RESP_TYPE_PATH,
-                   destPath ?: [NSNull null]
+                    saveFileError ?: [NSNull null],
+                    RESP_TYPE_PATH,
+                    destPath ?: [NSNull null]
                    ]);
 
     }
