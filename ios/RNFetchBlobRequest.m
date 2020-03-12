@@ -537,7 +537,26 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
             }
         }
     }
-    
+
+    if ([task isKindOfClass:[NSURLSessionDownloadTask class]] && error != nil) {
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*)[task response];
+        NSInteger statusCode = [httpResponse statusCode];
+
+        if (httpResponse == nil) {
+            statusCode = DOWNLOAD_STATUS_ERROR;
+        }
+
+        [self.bridge.eventDispatcher
+         sendDeviceEventWithName: EVENT_STATE_CHANGE
+         body:@{
+                @"taskId": taskId,
+                @"state": @"2",
+                @"redirects": redirects,
+                @"timeout" : @NO,
+                @"status": [NSNumber numberWithInteger: statusCode]
+                }
+         ];
+    }
     
     callback(@[
                errMsg ?: [NSNull null],
