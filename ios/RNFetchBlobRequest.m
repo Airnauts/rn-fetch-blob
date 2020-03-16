@@ -390,7 +390,7 @@ didFinishDownloadingToURL:(NSURL *)location {
     NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*)[downloadTask response];
     NSInteger statusCode = [httpResponse statusCode];
 
-    if (statusCode != DOWNLOAD_STATUS_OK) {
+    if (statusCode >= 300 || statusCode < DOWNLOAD_STATUS_OK) {
 
         NSInteger errorStatusCode = statusCode ?: DOWNLOAD_STATUS_ERROR;
 
